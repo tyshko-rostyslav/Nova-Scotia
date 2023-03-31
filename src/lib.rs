@@ -6,12 +6,14 @@ use std::{
 };
 
 use circom::circuit::{CircomCircuit, R1CS};
+use ff::PrimeField;
 use nova_snark::{
     traits::{circuit::TrivialTestCircuit, Group},
-    PublicParams, RecursiveSNARK,
+    FoldInput, PublicParams, RecursiveSNARK,
 };
 use num_bigint::BigInt;
 use num_traits::Num;
+use pasta_curves::Fq;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
@@ -66,6 +68,88 @@ struct CircomInput {
 
     #[serde(flatten)]
     extra: HashMap<String, Value>,
+}
+
+pub fn prepare_folds<F: PrimeField>(
+    witness_generator_file: FileLocation,
+    r1cs: R1CS<F1>,
+    private_inputs: Vec<HashMap<String, Value>>,
+    iter_count: usize,
+    start_public_input: Vec<F1>,
+) -> Vec<FoldInputs> {
+    let root = current_dir().unwrap();
+    let witness_generator_output = root.join("circom_witness.wtns");
+
+    let iteration_count = iter_count;
+
+    let start_public_input_hex = start_public_input
+        .iter()
+        .map(|&x| format!("{:?}", x).strip_prefix("0x").unwrap().to_string())
+        .collect::<Vec<String>>();
+    let mut current_public_input = start_public_input_hex.clone();
+
+    // let circuit_secondary = TrivialTestCircuit::<F>::default();
+    // let z0_secondary = vec![<G2 as Group>::Scalar::zero()];
+    let mut prepared_folds: Vec<FoldInputs> = vec![];
+
+    for i in 0..iteration_count {
+        let decimal_stringified_input: Vec<String> = current_public_input
+            .iter()
+            .map(|x| BigInt::from_str_radix(x, 16).unwrap().to_str_radix(10))
+            .collect();
+
+        let input = CircomInput {
+            step_in: decimal_stringified_input.clone(),
+            extra: private_inputs[i].clone(),
+        };
+
+        let input_json = serde_json::to_string(&input).unwrap();
+
+        let is_wasm = match &witness_generator_file {
+            FileLocation::PathBuf(path) => path.extension().unwrap_or_default() == "wasm",
+            FileLocation::URL(_) => true,
+        };
+
+        let witness = if is_wasm {
+            generate_witness_from_wasm::<<G1 as Group>::Scalar>(
+                &witness_generator_file,
+                &input_json,
+                &witness_generator_output,
+            )
+        } else {
+            let witness_generator_file = match &witness_generator_file {
+                FileLocation::PathBuf(path) => path,
+                FileLocation::URL(_) => panic!("unreachable"),
+            };
+            generate_witness_from_bin::<<G1 as Group>::Scalar>(
+                &witness_generator_file,
+                &input_json,
+                &witness_generator_output,
+            )
+        };
+        let circuit = CircomCircuit {
+            r1cs: r1cs.clone(),
+            witness: Some(witness.clone()),
+        };
+
+        let current_public_output = circuit.get_public_outputs();
+
+        prepared_folds.push(FoldInputs {
+            witness,
+            r1cs: r1cs.clone(),
+            public_inputs: current_public_input
+                .iter()
+                .map(|string| Fq::from_str_vartime(string).unwrap())
+                .collect(),
+            public_outputs: current_public_output.clone(),
+        });
+
+        current_public_input = current_public_output
+            .iter()
+            .map(|&x| format!("{:?}", x).strip_prefix("0x").unwrap().to_string())
+            .collect();
+    }
+    prepared_folds
 }
 
 #[cfg(not(target_family = "wasm"))]
