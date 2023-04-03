@@ -5,11 +5,13 @@ use std::{
     path::{Path, PathBuf},
 };
 
-use circom::circuit::{CircomCircuit, R1CS};
+use circom::circuit::{CircomCircuit, R1CSCircom};
 use ff::PrimeField;
+use itertools::Itertools;
+use nova_snark::parallel_prover::FoldInput;
 use nova_snark::{
     traits::{circuit::TrivialTestCircuit, Group},
-    FoldInput, PublicParams, RecursiveSNARK,
+    PublicParams, RecursiveSNARK,
 };
 use num_bigint::BigInt;
 use num_traits::Num;
@@ -47,7 +49,7 @@ pub enum FileLocation {
 }
 
 pub fn create_public_params(
-    r1cs: R1CS<F1>,
+    r1cs: R1CSCircom<F1>,
 ) -> PublicParams<G1, G2, CircomCircuit<F1>, TrivialTestCircuit<F2>> {
     let circuit_primary = CircomCircuit {
         r1cs,
@@ -62,6 +64,24 @@ pub fn create_public_params(
     pp
 }
 
+pub fn create_public_params_par(
+    r1cs: R1CSCircom<F1>,
+) -> nova_snark::parallel_prover::PublicParams<G1, G2, CircomCircuit<F1>, TrivialTestCircuit<F2>> {
+    let circuit_primary = CircomCircuit {
+        r1cs,
+        witness: None,
+    };
+    let circuit_secondary = TrivialTestCircuit::default();
+
+    let pp = nova_snark::parallel_prover::PublicParams::<
+        G1,
+        G2,
+        CircomCircuit<F1>,
+        TrivialTestCircuit<F2>,
+    >::setup(circuit_primary.clone(), circuit_secondary.clone());
+    pp
+}
+
 #[derive(Serialize, Deserialize)]
 struct CircomInput {
     step_in: Vec<String>,
@@ -70,13 +90,13 @@ struct CircomInput {
     extra: HashMap<String, Value>,
 }
 
-pub fn prepare_folds<F: PrimeField>(
+pub fn prepare_folds(
     witness_generator_file: FileLocation,
-    r1cs: R1CS<F1>,
+    r1cs: R1CSCircom<F1>,
     private_inputs: Vec<HashMap<String, Value>>,
     iter_count: usize,
     start_public_input: Vec<F1>,
-) -> Vec<FoldInputs> {
+) -> Vec<FoldInput<G1>> {
     let root = current_dir().unwrap();
     let witness_generator_output = root.join("circom_witness.wtns");
 
@@ -90,7 +110,7 @@ pub fn prepare_folds<F: PrimeField>(
 
     // let circuit_secondary = TrivialTestCircuit::<F>::default();
     // let z0_secondary = vec![<G2 as Group>::Scalar::zero()];
-    let mut prepared_folds: Vec<FoldInputs> = vec![];
+    let mut prepared_folds: Vec<FoldInput<G1>> = vec![];
 
     for i in 0..iteration_count {
         let decimal_stringified_input: Vec<String> = current_public_input
@@ -134,12 +154,11 @@ pub fn prepare_folds<F: PrimeField>(
 
         let current_public_output = circuit.get_public_outputs();
 
-        prepared_folds.push(FoldInputs {
+        prepared_folds.push(FoldInput {
             witness,
-            r1cs: r1cs.clone(),
-            public_inputs: current_public_input
+            public_inputs: decimal_stringified_input
                 .iter()
-                .map(|string| Fq::from_str_vartime(string).unwrap())
+                .map(|string| F1::from_str_vartime(string).unwrap())
                 .collect(),
             public_outputs: current_public_output.clone(),
         });
@@ -155,7 +174,7 @@ pub fn prepare_folds<F: PrimeField>(
 #[cfg(not(target_family = "wasm"))]
 pub fn create_recursive_circuit(
     witness_generator_file: FileLocation,
-    r1cs: R1CS<F1>,
+    r1cs: R1CSCircom<F1>,
     private_inputs: Vec<HashMap<String, Value>>,
     start_public_input: Vec<F1>,
     pp: &PublicParams<G1, G2, C1, C2>,
@@ -169,6 +188,7 @@ pub fn create_recursive_circuit(
         .iter()
         .map(|&x| format!("{:?}", x).strip_prefix("0x").unwrap().to_string())
         .collect::<Vec<String>>();
+
     let mut current_public_input = start_public_input_hex.clone();
 
     let circuit_secondary = TrivialTestCircuit::default();

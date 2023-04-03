@@ -10,7 +10,7 @@ use std::path::Path;
 use std::process::Command;
 use std::str;
 
-use crate::circom::circuit::{CircuitJson, R1CS};
+use crate::circom::circuit::{CircuitJson, R1CSCircom};
 use crate::circom::file::{from_reader, read_field};
 use crate::FileLocation;
 use ff::PrimeField;
@@ -172,7 +172,7 @@ pub(crate) fn load_witness_from_bin_reader<Fr: PrimeField, R: Read>(
 
 #[cfg(not(target_family = "wasm"))]
 /// load r1cs file by filename with autodetect encoding (bin or json)
-pub fn load_r1cs(filename: &FileLocation) -> R1CS<<G1 as Group>::Scalar> {
+pub fn load_r1cs(filename: &FileLocation) -> R1CSCircom<<G1 as Group>::Scalar> {
     let filename = match filename {
         FileLocation::PathBuf(filename) => filename,
         FileLocation::URL(_) => panic!("unreachable"),
@@ -188,7 +188,7 @@ pub fn load_r1cs(filename: &FileLocation) -> R1CS<<G1 as Group>::Scalar> {
 pub use crate::circom::wasm::load_r1cs;
 
 /// load r1cs from json file by filename
-fn load_r1cs_from_json_file<Fr: PrimeField>(filename: &Path) -> R1CS<Fr> {
+fn load_r1cs_from_json_file<Fr: PrimeField>(filename: &Path) -> R1CSCircom<Fr> {
     let reader = OpenOptions::new()
         .read(true)
         .open(filename)
@@ -197,7 +197,7 @@ fn load_r1cs_from_json_file<Fr: PrimeField>(filename: &Path) -> R1CS<Fr> {
 }
 
 /// load r1cs from json by a reader
-fn load_r1cs_from_json<Fr: PrimeField, R: Read>(reader: R) -> R1CS<Fr> {
+fn load_r1cs_from_json<Fr: PrimeField, R: Read>(reader: R) -> R1CSCircom<Fr> {
     let circuit_json: CircuitJson = serde_json::from_reader(reader).expect("unable to read.");
 
     let num_inputs = circuit_json.num_inputs + circuit_json.num_outputs + 1;
@@ -221,7 +221,7 @@ fn load_r1cs_from_json<Fr: PrimeField, R: Read>(reader: R) -> R1CS<Fr> {
         })
         .collect_vec();
 
-    R1CS {
+    R1CSCircom {
         num_inputs,
         num_aux,
         num_variables: circuit_json.num_variables,
@@ -230,7 +230,7 @@ fn load_r1cs_from_json<Fr: PrimeField, R: Read>(reader: R) -> R1CS<Fr> {
 }
 
 /// load r1cs from bin file by filename
-fn load_r1cs_from_bin_file(filename: &Path) -> R1CS<<G1 as Group>::Scalar> {
+fn load_r1cs_from_bin_file(filename: &Path) -> R1CSCircom<<G1 as Group>::Scalar> {
     let reader = OpenOptions::new()
         .read(true)
         .open(filename)
@@ -239,12 +239,12 @@ fn load_r1cs_from_bin_file(filename: &Path) -> R1CS<<G1 as Group>::Scalar> {
 }
 
 /// load r1cs from bin by a reader
-pub(crate) fn load_r1cs_from_bin<R: Read + Seek>(reader: R) -> R1CS<<G1 as Group>::Scalar> {
+pub(crate) fn load_r1cs_from_bin<R: Read + Seek>(reader: R) -> R1CSCircom<<G1 as Group>::Scalar> {
     let file = from_reader(reader).expect("unable to read.");
     let num_inputs = (1 + file.header.n_pub_in + file.header.n_pub_out) as usize;
     let num_variables = file.header.n_wires as usize;
     let num_aux = num_variables - num_inputs;
-    R1CS {
+    R1CSCircom {
         num_aux,
         num_inputs,
         num_variables,

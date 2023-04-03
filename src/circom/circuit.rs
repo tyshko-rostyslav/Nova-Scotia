@@ -21,7 +21,7 @@ pub struct CircuitJson {
 pub type Constraint<Fr> = (Vec<(usize, Fr)>, Vec<(usize, Fr)>, Vec<(usize, Fr)>);
 
 #[derive(Clone)]
-pub struct R1CS<Fr: PrimeField> {
+pub struct R1CSCircom<Fr: PrimeField> {
     pub num_inputs: usize,
     pub num_aux: usize,
     pub num_variables: usize,
@@ -30,7 +30,7 @@ pub struct R1CS<Fr: PrimeField> {
 
 #[derive(Clone)]
 pub struct CircomCircuit<Fr: PrimeField> {
-    pub r1cs: R1CS<Fr>,
+    pub r1cs: R1CSCircom<Fr>,
     pub witness: Option<Vec<Fr>>,
     // debug symbols
 }
